@@ -2,14 +2,14 @@
 set -u
 export LC_ALL=C
 
-SCRIPT_VERSION="0.2.1"
+SCRIPT_VERSION="0.2.2"
 
 print_usage() {
   cat <<'USAGE'
 Usage: bash benchmark.sh [options]
 
 Benchmark profile (default):
-  Input: video_720.mp4
+  Input: video_720.mp4 (auto-generated if missing)
   Clip duration: 5 seconds per test
   Codecs: h264,h265,av1
 
@@ -55,11 +55,21 @@ trim() {
 }
 
 json_escape() {
-  printf '%s' "$1" | sed \
-    -e 's/\\/\\\\/g' \
-    -e 's/"/\\"/g' \
-    -e 's/\r/\\r/g' \
-    -e ':a;N;$!ba;s/\n/\\n/g'
+  # Portable JSON string escaping (GNU/BSD awk compatible).
+  printf '%s' "$1" | awk '
+    BEGIN {
+      ORS = ""
+    }
+    {
+      gsub(/\\/, "\\\\")
+      gsub(/"/, "\\\"")
+      gsub(/\r/, "\\r")
+      if (NR > 1) {
+        printf "\\n"
+      }
+      printf "%s", $0
+    }
+  '
 }
 
 compact_multiline_for_tsv() {
@@ -195,6 +205,28 @@ print_json_array() {
   done
 }
 
+generate_default_input_if_missing() {
+  local input_path="$1"
+  local clip_sec="$2"
+
+  if [ -f "$input_path" ]; then
+    return 0
+  fi
+
+  printf 'Default input not found: %s\n' "$input_path" >&2
+  printf 'Generating synthetic 720p sample clip (%ss)...\n' "$clip_sec" >&2
+
+  if ffmpeg -hide_banner -loglevel error -y \
+      -f lavfi -i "testsrc2=size=1280x720:rate=30" \
+      -t "$clip_sec" -pix_fmt yuv420p \
+      -c:v mpeg4 -q:v 5 \
+      "$input_path"; then
+    return 0
+  fi
+
+  return 1
+}
+
 INPUTS=("video_720.mp4")
 CODECS=("h264" "h265" "av1")
 OUTDIR="./bench_out"
@@ -207,12 +239,14 @@ MAX_JOBS="1"
 KEEP_OUTPUTS=0
 WRITE_JSON=1
 WRITE_MARKDOWN=1
+CUSTOM_INPUTS=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --inputs)
       [ $# -ge 2 ] || die "--inputs requires a value"
       IFS=',' read -r -a INPUTS <<< "$2"
+      CUSTOM_INPUTS=1
       shift 2
       ;;
     --codecs)
@@ -373,6 +407,15 @@ if ! command -v ffprobe >/dev/null 2>&1; then
   printf 'Error: ffprobe is not installed or not in PATH.\n' >&2
   print_ffmpeg_install_help
   exit 1
+fi
+
+# For one-line default usage, auto-generate the expected sample input.
+if [ "$CUSTOM_INPUTS" -eq 0 ] && [ "${#INPUTS[@]}" -eq 1 ] && [ "${INPUTS[0]}" = "video_720.mp4" ]; then
+  if [ ! -f "${INPUTS[0]}" ]; then
+    if ! generate_default_input_if_missing "${INPUTS[0]}" "$CLIP_DURATION_SEC"; then
+      die "Could not generate default input file '${INPUTS[0]}'. Try running in a writable directory or pass --inputs with an existing file."
+    fi
+  fi
 fi
 
 mkdir -p "$OUTDIR" || die "Could not create output directory: $OUTDIR"

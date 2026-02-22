@@ -4,7 +4,6 @@ bench_out*/
 # Local media samples
 video.mp4
 video_1080.mp4
-video_720.mp4
 
 # OS/editor artifacts
 .DS_Store

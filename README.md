@@ -3,7 +3,7 @@
 A single-script benchmark for comparing video encoding speed across machines.
 
 Default profile:
-- Input: `video_720.mp4`
+- Input: `video_720.mp4` (auto-generated if missing)
 - Clip duration per test: `5s`
 - Codecs: `h264`, `h265`, `av1`
 
@@ -18,7 +18,7 @@ This benchmark always uses your system `ffmpeg` (no bundling, no auto-install).
 
 ## Quick Start
 
-From a folder that contains `video_720.mp4`:
+Run from any writable folder:
 
 ```bash
 bash benchmark.sh
@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/benchmark.sh | 
 Pinned version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/v0.2.1/benchmark.sh | bash
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/v0.2.2/benchmark.sh | bash
 ```
 
 ## CLI Options
