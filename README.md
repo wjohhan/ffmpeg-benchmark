@@ -73,6 +73,7 @@ ffmpeg-benchmark [run] [options]
 Notes:
 - `--inputs` has priority over `--resolution`
 - Missing preset files are auto-generated for non-custom input mode
+- If `--duration-sec` is longer than the input file, the input is looped to match requested duration
 ```
 
 Example:

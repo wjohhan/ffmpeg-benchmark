@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-var Version = "0.3.2"
+var Version = "0.3.3"
 
 var errShowHelp = errors.New("show help")
 
@@ -188,9 +188,7 @@ func run(args []string) error {
 		resLabel, resWeight := resolutionInfo(ffprobePath, input)
 		sourceDuration := probeDuration(ffprobePath, input)
 		testDuration := cfg.DurationSec
-		if sourceDuration > 0 && sourceDuration < testDuration {
-			testDuration = sourceDuration
-		}
+		loopInput := sourceDuration > 0 && sourceDuration < testDuration
 
 		for _, codec := range cfg.Codecs {
 			caseIndex++
@@ -231,7 +229,7 @@ func run(args []string) error {
 			outputPath := filepath.Join(encodedDir, fmt.Sprintf("%s_%s.mp4", stem, codec))
 			logPath := filepath.Join(logDir, fmt.Sprintf("%s_%s.log", stem, codec))
 
-			stderrText, elapsed, ffArgs, runErr := runEncode(ffmpegPath, input, outputPath, codec, encoder, cfg, testDuration)
+			stderrText, elapsed, ffArgs, runErr := runEncode(ffmpegPath, input, outputPath, codec, encoder, cfg, testDuration, loopInput)
 			c.ElapsedSec = elapsed.Seconds()
 			c.OutputFile = outputPath
 			c.StderrTail = compactLog(stderrText)
@@ -659,7 +657,7 @@ func chooseEncoder(codec string, avail EncoderAvailability) string {
 	}
 }
 
-func runEncode(ffmpegPath, input, output, codec, encoder string, cfg Config, durationSec float64) (string, time.Duration, []string, error) {
+func runEncode(ffmpegPath, input, output, codec, encoder string, cfg Config, durationSec float64, loopInput bool) (string, time.Duration, []string, error) {
 	codecArgs := make([]string, 0, 8)
 	switch codec {
 	case "h264":
@@ -674,11 +672,14 @@ func runEncode(ffmpegPath, input, output, codec, encoder string, cfg Config, dur
 		}
 	}
 
-	args := []string{
-		"-hide_banner", "-loglevel", "error", "-y",
+	args := []string{"-hide_banner", "-loglevel", "error", "-y"}
+	if loopInput {
+		args = append(args, "-stream_loop", "-1")
+	}
+	args = append(args,
 		"-i", input,
 		"-t", formatFloat(durationSec, 6),
-	}
+	)
 	args = append(args, codecArgs...)
 	args = append(args, "-an", output)
 
