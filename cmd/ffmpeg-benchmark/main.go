@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-var Version = "0.3.4"
+var Version = "0.3.5"
 
 var errShowHelp = errors.New("show help")
 
