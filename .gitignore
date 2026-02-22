@@ -1,5 +1,8 @@
 # Benchmark outputs
 bench_out*/
+dist/
+/ffmpeg-benchmark
+benchmark-v*.tar.gz
 
 # Local media samples
 video.mp4

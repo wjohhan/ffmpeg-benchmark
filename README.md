@@ -1,54 +1,58 @@
-# Video Encode Benchmark (Mac/Linux)
+# ffmpeg-benchmark
 
-A single-script benchmark for comparing video encoding speed across machines.
+Cross-platform video encode benchmark as a single binary for macOS/Linux.
 
 Default profile:
 - Input: `video_720.mp4` (auto-generated if missing)
 - Clip duration per test: `5s`
 - Codecs: `h264`, `h265`, `av1`
 
-The script measures realtime throughput (`speed_x`) for each encode and computes a weighted total score (`0-1000`).
+The benchmark uses your system `ffmpeg`/`ffprobe` and outputs:
+- pretty console summary
+- `bench_out/cases_scored.tsv`
+- `bench_out/results.json`
+- `bench_out/results.md`
 
 ## Requirements
 
-- `bash`
-- `ffmpeg` and `ffprobe` installed in `PATH`
+- `ffmpeg` and `ffprobe` in `PATH`
 
-This benchmark always uses your system `ffmpeg` (no bundling, no auto-install).
+## Install (Recommended)
 
-## Quick Start
-
-Run from any writable folder:
+Install latest release binary:
 
 ```bash
-bash benchmark.sh
+curl -fsSL https://raw.githubusercontent.com/wjohhan/ffmpeg-benchmark/main/install.sh | bash
 ```
 
-Output files are written to `./bench_out`:
-- `cases_scored.tsv`
-- `results.json`
-- `results.md`
-- per-case logs under `bench_out/logs/`
-
-## One-Line Remote Run (when hosted)
-
-Latest:
+Then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/benchmark.sh | bash
+ffmpeg-benchmark run
 ```
 
-Pinned version:
+Legacy command still works (wrapper):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/v0.2.3/benchmark.sh | bash
+curl -fsSL https://raw.githubusercontent.com/wjohhan/ffmpeg-benchmark/main/benchmark.sh | bash
 ```
 
-## CLI Options
+## Build from source
+
+```bash
+git clone https://github.com/wjohhan/ffmpeg-benchmark.git
+cd ffmpeg-benchmark
+make build
+./ffmpeg-benchmark run
+```
+
+## CLI
 
 ```text
+ffmpeg-benchmark [run] [options]
+
 --inputs CSV         Comma-separated input files
---codecs CSV         h264,h265,av1 (hevc alias supported)
+--codecs CSV         Comma-separated codecs: h264,h265,av1 (hevc alias supported)
 --duration-sec N     Clip duration in seconds per test (default: 5)
 --outdir DIR         Output directory (default: ./bench_out)
 --preset NAME        Preset for h264/h265 (default: medium)
@@ -58,27 +62,30 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/v0.2.3/benchmark.sh 
 --crf-av1 N          CRF/quality value for av1 (default: 32)
 --max-jobs N         Reserved for future parallel runs; currently only 1 is supported
 --keep-outputs       Keep encoded output videos
---json / --no-json
---markdown / --no-markdown
---help
+--json               Write results.json (enabled by default)
+--markdown           Write results.md (enabled by default)
+--no-json            Skip JSON output
+--no-markdown        Skip Markdown output
+--version            Print version
+--help               Show help
 ```
 
 Example:
 
 ```bash
-bash benchmark.sh \
+ffmpeg-benchmark run \
   --inputs "video_720.mp4" \
   --codecs "h264,h265,av1" \
   --duration-sec 5 \
   --outdir ./bench_out
 ```
 
-## Scoring Model
+## Scoring model
 
 Resolution weights:
 - 4K: `0.50`
 - 1080p: `0.30`
-- 720p: `0.20` (default profile uses this only)
+- 720p: `0.20`
 
 Codec weights:
 - AV1: `0.45`
@@ -93,4 +100,12 @@ Per case:
 Total:
 - `total_score_1000 = round(1000 * sum(case_score))`
 
-Failed/unsupported cases contribute `0` score and are still included in the report.
+## Release build
+
+Create release assets for Linux/macOS amd64+arm64:
+
+```bash
+make dist
+```
+
+Artifacts are written to `dist/`.
