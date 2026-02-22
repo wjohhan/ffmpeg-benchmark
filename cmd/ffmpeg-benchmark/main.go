@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-var Version = "0.3.3"
+var Version = "0.3.4"
 
 var errShowHelp = errors.New("show help")
 
@@ -79,11 +79,32 @@ type CaseResult struct {
 }
 
 type Summary struct {
+	SuccessfulCases   int                 `json:"successful_cases"`
+	FailedCases       int                 `json:"failed_cases"`
+	UnsupportedCases  int                 `json:"unsupported_cases"`
+	GeomeanSpeedX     float64             `json:"geomean_speed_x"`
+	OverallScore1000  int                 `json:"overall_score_1000"`
+	TotalScore1000    int                 `json:"total_score_1000"`
+	ResolutionScores  []ResolutionSummary `json:"resolution_scores"`
+	OverallScoreBasis string              `json:"overall_score_basis"`
+}
+
+type ResolutionSummary struct {
+	ResolutionLabel  string  `json:"resolution_label"`
 	SuccessfulCases  int     `json:"successful_cases"`
 	FailedCases      int     `json:"failed_cases"`
 	UnsupportedCases int     `json:"unsupported_cases"`
 	GeomeanSpeedX    float64 `json:"geomean_speed_x"`
-	TotalScore1000   int     `json:"total_score_1000"`
+	Score1000        int     `json:"score_1000"`
+}
+
+type resolutionAggregate struct {
+	successful  int
+	failed      int
+	unsupported int
+	sumLog      float64
+	nOKSpeed    int
+	sumScore    float64
 }
 
 type Results struct {
@@ -210,7 +231,7 @@ func run(args []string) error {
 			if _, statErr := os.Stat(input); errors.Is(statErr, os.ErrNotExist) {
 				c.Status = "FAILED"
 				c.StderrTail = fmt.Sprintf("Input file not found: %s", input)
-				fmt.Printf("%s (%s, %s)\n", c.Status, formatSpeed(c.SpeedX), formatSeconds(c.ElapsedSec))
+				fmt.Printf("%s\n", c.Status)
 				cases = append(cases, c)
 				continue
 			}
@@ -220,7 +241,7 @@ func run(args []string) error {
 			if encoder == "" {
 				c.Status = "UNSUPPORTED"
 				c.StderrTail = fmt.Sprintf("Encoder unavailable for codec %s", codec)
-				fmt.Printf("%s (%s, %s)\n", c.Status, formatSpeed(c.SpeedX), formatSeconds(c.ElapsedSec))
+				fmt.Printf("%s\n", c.Status)
 				cases = append(cases, c)
 				continue
 			}
@@ -246,6 +267,7 @@ func run(args []string) error {
 			} else {
 				c.Status = "OK"
 				c.SpeedX = testDuration / c.ElapsedSec
+				c.StderrTail = compactImportantLog(stderrText)
 			}
 
 			if !cfg.KeepOutputs {
@@ -253,7 +275,7 @@ func run(args []string) error {
 				c.OutputFile = ""
 			}
 
-			fmt.Printf("%s (%s, %s)\n", c.Status, formatSpeed(c.SpeedX), formatSeconds(c.ElapsedSec))
+			fmt.Printf("%s\n", c.Status)
 			cases = append(cases, c)
 		}
 	}
@@ -267,7 +289,6 @@ func run(args []string) error {
 	}
 
 	printCaseTable(cases)
-	printRanking(cases)
 	printSummary(summary)
 
 	results := Results{
@@ -735,13 +756,17 @@ func resolutionInfo(ffprobePath, input string) (string, float64) {
 	if w == 0 || h == 0 {
 		return "unknown", 0.20
 	}
-	if h >= 2000 {
-		return ">=4K", 0.50
+	return classifyResolutionByHeight(h)
+}
+
+func classifyResolutionByHeight(height int) (string, float64) {
+	if height >= 2000 {
+		return "4K", 0.50
 	}
-	if h >= 1000 {
+	if height >= 1000 {
 		return "1080p", 0.30
 	}
-	if h >= 700 {
+	if height >= 700 {
 		return "720p", 0.20
 	}
 	return "unknown", 0.20
@@ -803,36 +828,44 @@ func codecWeight(codec string) float64 {
 }
 
 func scoreCases(cases []CaseResult) {
-	totalRaw := 0.0
-	for _, c := range cases {
-		totalRaw += c.RawWeight
-	}
-	if totalRaw <= 0 {
-		totalRaw = 1
+	byResolution := map[string][]int{}
+	for i := range cases {
+		label := cases[i].ResolutionLabel
+		byResolution[label] = append(byResolution[label], i)
 	}
 
-	for i := range cases {
-		weightNorm := cases[i].RawWeight / totalRaw
-		normalizedSpeed := cases[i].SpeedX / 5.0
-		if normalizedSpeed > 1.0 {
-			normalizedSpeed = 1.0
+	for _, indices := range byResolution {
+		totalRaw := 0.0
+		for _, idx := range indices {
+			totalRaw += cases[idx].RawWeight
 		}
-		if cases[i].Status != "OK" {
-			normalizedSpeed = 0
+		if totalRaw <= 0 {
+			totalRaw = 1
 		}
-		cases[i].WeightNorm = weightNorm
-		cases[i].CaseScore = weightNorm * normalizedSpeed
+
+		for _, idx := range indices {
+			weightNorm := cases[idx].RawWeight / totalRaw
+			normalizedSpeed := cases[idx].SpeedX / 5.0
+			if normalizedSpeed > 1.0 {
+				normalizedSpeed = 1.0
+			}
+			if cases[idx].Status != "OK" {
+				normalizedSpeed = 0
+			}
+			cases[idx].WeightNorm = weightNorm
+			cases[idx].CaseScore = weightNorm * normalizedSpeed
+		}
 	}
 }
 
 func summarize(cases []CaseResult) Summary {
 	summary := Summary{}
-	sumScore := 0.0
 	sumLog := 0.0
 	nOKSpeed := 0
 
+	aggregates := map[string]*resolutionAggregate{}
+
 	for _, c := range cases {
-		sumScore += c.CaseScore
 		switch c.Status {
 		case "OK":
 			summary.SuccessfulCases++
@@ -845,14 +878,95 @@ func summarize(cases []CaseResult) Summary {
 		case "UNSUPPORTED":
 			summary.UnsupportedCases++
 		}
+
+		label := c.ResolutionLabel
+		agg := aggregates[label]
+		if agg == nil {
+			agg = &resolutionAggregate{}
+			aggregates[label] = agg
+		}
+		switch c.Status {
+		case "OK":
+			agg.successful++
+			if c.SpeedX > 0 {
+				agg.sumLog += math.Log(c.SpeedX)
+				agg.nOKSpeed++
+			}
+		case "FAILED":
+			agg.failed++
+		case "UNSUPPORTED":
+			agg.unsupported++
+		}
+		agg.sumScore += c.CaseScore
 	}
 
 	if nOKSpeed > 0 {
 		summary.GeomeanSpeedX = math.Exp(sumLog / float64(nOKSpeed))
 	}
-	summary.TotalScore1000 = int(math.Round(sumScore * 1000))
+
+	labels := sortedResolutionLabels(aggregates)
+	resolutionSummaries := make([]ResolutionSummary, 0, len(labels))
+	sumResolutionScores := 0.0
+	for _, label := range labels {
+		agg := aggregates[label]
+		rs := ResolutionSummary{
+			ResolutionLabel:  label,
+			SuccessfulCases:  agg.successful,
+			FailedCases:      agg.failed,
+			UnsupportedCases: agg.unsupported,
+			Score1000:        int(math.Round(agg.sumScore * 1000)),
+		}
+		if agg.nOKSpeed > 0 {
+			rs.GeomeanSpeedX = math.Exp(agg.sumLog / float64(agg.nOKSpeed))
+		}
+		resolutionSummaries = append(resolutionSummaries, rs)
+		sumResolutionScores += agg.sumScore
+	}
+	summary.ResolutionScores = resolutionSummaries
+
+	if len(resolutionSummaries) > 0 {
+		overall := int(math.Round((sumResolutionScores / float64(len(resolutionSummaries))) * 1000))
+		summary.OverallScore1000 = overall
+		summary.TotalScore1000 = overall
+		if len(resolutionSummaries) > 1 {
+			summary.OverallScoreBasis = "mean_of_resolution_scores"
+		} else {
+			summary.OverallScoreBasis = "single_resolution_score"
+		}
+	}
 
 	return summary
+}
+
+func sortedResolutionLabels(aggregates map[string]*resolutionAggregate) []string {
+	labels := make([]string, 0, len(aggregates))
+	for label := range aggregates {
+		labels = append(labels, label)
+	}
+	sort.SliceStable(labels, func(i, j int) bool {
+		ri := resolutionLabelRank(labels[i])
+		rj := resolutionLabelRank(labels[j])
+		if ri == rj {
+			return labels[i] < labels[j]
+		}
+		return ri < rj
+	})
+	return labels
+}
+
+func resolutionLabelRank(label string) int {
+	switch label {
+	case "720p":
+		return 10
+	case "1080p":
+		return 20
+	case "4K":
+		return 30
+	case "unknown":
+		return 100
+	default:
+		return 50
+	}
 }
 
 func writeScoredTSV(path string, cases []CaseResult) error {
@@ -895,8 +1009,12 @@ func writeMarkdown(path string, results Results) error {
 	fmt.Fprintf(&b, "- Run date (UTC): `%s`\n", results.RunDateUTC)
 	fmt.Fprintf(&b, "- Script version: `%s`\n", results.ScriptVersion)
 	fmt.Fprintf(&b, "- Clip duration per test: `%ss`\n", formatDurationValue(results.RunConfig.ClipDurationSec))
-	fmt.Fprintf(&b, "- Total score: **%d / 1000**\n", results.Summary.TotalScore1000)
-	fmt.Fprintf(&b, "- Geomean speed (OK cases): **%sx**\n\n", formatFloat(results.Summary.GeomeanSpeedX, 4))
+	fmt.Fprintf(&b, "- Geomean speed (OK cases): **%sx**\n", formatFloat(results.Summary.GeomeanSpeedX, 4))
+	if len(results.Summary.ResolutionScores) > 1 {
+		fmt.Fprintf(&b, "- Overall score: **%d / 1000** (mean of resolution scores)\n\n", results.Summary.OverallScore1000)
+	} else {
+		fmt.Fprintf(&b, "- Score: **%d / 1000**\n\n", results.Summary.OverallScore1000)
+	}
 
 	b.WriteString("## System\n\n")
 	b.WriteString("| Key | Value |\n")
@@ -906,29 +1024,40 @@ func writeMarkdown(path string, results Results) error {
 	fmt.Fprintf(&b, "| Logical cores | `%d` |\n", results.System.LogicalCores)
 	fmt.Fprintf(&b, "| ffmpeg | `%s` |\n\n", results.System.FFmpeg)
 
-	b.WriteString("## Cases\n\n")
-	b.WriteString("| Input | Codec | Encoder | Status | Duration (s) | Elapsed (s) | Speed (x) | Weight | Case Score |\n")
-	b.WriteString("|---|---|---|---|---:|---:|---:|---:|---:|\n")
-	for _, c := range results.Cases {
-		fmt.Fprintf(&b,
-			"| `%s` | `%s` | `%s` | `%s` | %.3f | %.3f | %.3f | %.4f | %.4f |\n",
-			filepath.Base(c.Input), c.Codec, fallback(c.Encoder, "n/a"), c.Status,
-			c.DurationSec, c.ElapsedSec, c.SpeedX, c.WeightNorm, c.CaseScore,
+	b.WriteString("## Resolution Scores\n\n")
+	b.WriteString("| Resolution | OK | Failed | Unsupported | Geomean Speed (x) | Score (/1000) |\n")
+	b.WriteString("|---|---:|---:|---:|---:|---:|\n")
+	for _, rs := range results.Summary.ResolutionScores {
+		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %.4f | %d |\n",
+			rs.ResolutionLabel,
+			rs.SuccessfulCases,
+			rs.FailedCases,
+			rs.UnsupportedCases,
+			rs.GeomeanSpeedX,
+			rs.Score1000,
 		)
 	}
 
-	ranked := rankedCases(results.Cases)
-	b.WriteString("\n## Ranking (By Speed)\n\n")
-	b.WriteString("| Rank | Codec | Status | Speed (x) | Elapsed (s) | Case Score |\n")
-	b.WriteString("|---:|---|---|---:|---:|---:|\n")
-	for i, c := range ranked {
-		fmt.Fprintf(&b, "| %d | `%s` | `%s` | %.3f | %.3f | %.4f |\n", i+1, c.Codec, c.Status, c.SpeedX, c.ElapsedSec, c.CaseScore)
+	b.WriteString("\n## Cases\n\n")
+	b.WriteString("| Input | Res | Codec | Status | Speed (x) | Elapsed (s) | Case Score |\n")
+	b.WriteString("|---|---|---|---|---:|---:|---:|\n")
+	for _, c := range results.Cases {
+		fmt.Fprintf(&b,
+			"| `%s` | `%s` | `%s` | `%s` | %.3f | %.3f | %.4f |\n",
+			filepath.Base(c.Input), c.ResolutionLabel, c.Codec, c.Status,
+			c.SpeedX, c.ElapsedSec, c.CaseScore,
+		)
 	}
 
 	b.WriteString("\n## Summary\n\n")
 	fmt.Fprintf(&b, "- Successful cases: `%d`\n", results.Summary.SuccessfulCases)
 	fmt.Fprintf(&b, "- Failed cases: `%d`\n", results.Summary.FailedCases)
 	fmt.Fprintf(&b, "- Unsupported cases: `%d`\n", results.Summary.UnsupportedCases)
+	if len(results.Summary.ResolutionScores) > 1 {
+		fmt.Fprintf(&b, "- Overall score: `%d / 1000` (mean of resolution scores)\n", results.Summary.OverallScore1000)
+	} else {
+		fmt.Fprintf(&b, "- Score: `%d / 1000`\n", results.Summary.OverallScore1000)
+	}
 
 	if results.Summary.FailedCases > 0 || results.Summary.UnsupportedCases > 0 {
 		b.WriteString("\n## Non-OK Cases\n\n")
@@ -949,29 +1078,12 @@ func writeMarkdown(path string, results Results) error {
 
 func printCaseTable(cases []CaseResult) {
 	fmt.Printf("\nCase results:\n")
-	fmt.Printf("%-16s %-6s %-11s %-9s %-9s %-8s %-8s\n", "Input", "Codec", "Status", "Speed", "Elapsed", "Weight", "Score")
-	fmt.Printf("%s\n", "---------------------------------------------------------------------------")
+	fmt.Printf("%-16s %-7s %-6s %-11s %-9s %-9s %-8s\n", "Input", "Res", "Codec", "Status", "Speed", "Elapsed", "Score")
+	fmt.Printf("%s\n", "--------------------------------------------------------------------------------")
 	for _, c := range cases {
-		fmt.Printf("%-16s %-6s %-11s %-9s %-9s %-8s %-8s\n",
+		fmt.Printf("%-16s %-7s %-6s %-11s %-9s %-9s %-8s\n",
 			filepath.Base(c.Input),
-			c.Codec,
-			c.Status,
-			formatSpeed(c.SpeedX),
-			formatSeconds(c.ElapsedSec),
-			formatFloat(c.WeightNorm, 3),
-			formatFloat(c.CaseScore, 3),
-		)
-	}
-}
-
-func printRanking(cases []CaseResult) {
-	ranked := rankedCases(cases)
-	fmt.Printf("\nCodec ranking (by speed):\n")
-	fmt.Printf("%-4s %-6s %-11s %-9s %-9s %-9s\n", "Rank", "Codec", "Status", "Speed", "Elapsed", "Score")
-	fmt.Printf("%s\n", "--------------------------------------------------------------")
-	for i, c := range ranked {
-		fmt.Printf("%-4d %-6s %-11s %-9s %-9s %-9s\n",
-			i+1,
+			c.ResolutionLabel,
 			c.Codec,
 			c.Status,
 			formatSpeed(c.SpeedX),
@@ -987,19 +1099,29 @@ func printSummary(summary Summary) {
 	fmt.Printf("  Failed cases:      %d\n", summary.FailedCases)
 	fmt.Printf("  Unsupported cases: %d\n", summary.UnsupportedCases)
 	fmt.Printf("  Geomean speed:     %sx\n", formatFloat(summary.GeomeanSpeedX, 4))
-	fmt.Printf("  Total score:       %d / 1000\n", summary.TotalScore1000)
-}
+	if len(summary.ResolutionScores) > 1 {
+		fmt.Printf("  Overall score:     %d / 1000 (mean of resolution scores)\n", summary.OverallScore1000)
+	} else {
+		fmt.Printf("  Score:             %d / 1000\n", summary.OverallScore1000)
+	}
 
-func rankedCases(cases []CaseResult) []CaseResult {
-	cp := make([]CaseResult, len(cases))
-	copy(cp, cases)
-	sort.SliceStable(cp, func(i, j int) bool {
-		if cp[i].SpeedX == cp[j].SpeedX {
-			return cp[i].Codec < cp[j].Codec
-		}
-		return cp[i].SpeedX > cp[j].SpeedX
-	})
-	return cp
+	if len(summary.ResolutionScores) == 0 {
+		return
+	}
+
+	fmt.Printf("\nResolution scores:\n")
+	fmt.Printf("%-10s %-4s %-6s %-11s %-9s %-11s\n", "Resolution", "OK", "Fail", "Unsupported", "Geomean", "Score")
+	fmt.Printf("%s\n", "---------------------------------------------------------------------")
+	for _, rs := range summary.ResolutionScores {
+		fmt.Printf("%-10s %-4d %-6d %-11d %-9s %-11s\n",
+			rs.ResolutionLabel,
+			rs.SuccessfulCases,
+			rs.FailedCases,
+			rs.UnsupportedCases,
+			formatSpeed(rs.GeomeanSpeedX),
+			fmt.Sprintf("%d/1000", rs.Score1000),
+		)
+	}
 }
 
 func compactLog(stderr string) string {
@@ -1024,6 +1146,37 @@ func compactLog(stderr string) string {
 		clean = clean[len(clean)-maxLines:]
 	}
 	return strings.Join(clean, "\\n")
+}
+
+func compactImportantLog(stderr string) string {
+	if stderr == "" {
+		return ""
+	}
+	norm := strings.ReplaceAll(stderr, "\r\n", "\n")
+	norm = strings.ReplaceAll(norm, "\t", " ")
+	lines := strings.Split(norm, "\n")
+	important := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "error") ||
+			strings.Contains(lower, "warn") ||
+			strings.Contains(lower, "fail") ||
+			strings.Contains(lower, "invalid") {
+			important = append(important, line)
+		}
+	}
+	if len(important) == 0 {
+		return ""
+	}
+	const maxLines = 20
+	if len(important) > maxLines {
+		important = important[len(important)-maxLines:]
+	}
+	return strings.Join(important, "\\n")
 }
 
 func appendMsg(msg, extra string) string {
@@ -1113,4 +1266,5 @@ func printUsage() {
 	fmt.Println("Notes:")
 	fmt.Println("  - --inputs has priority over --resolution")
 	fmt.Println("  - Missing preset files are auto-generated for non-custom input mode")
+	fmt.Println("  - If --duration-sec is longer than the input file, input is looped to match it")
 }

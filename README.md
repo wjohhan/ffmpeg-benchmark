@@ -94,23 +94,24 @@ ffmpeg-benchmark run -r all -d 3
 
 ## Scoring model
 
-Resolution weights:
-- 4K: `0.50`
-- 1080p: `0.30`
-- 720p: `0.20`
-
 Codec weights:
 - AV1: `0.45`
 - H265: `0.35`
 - H264: `0.20`
 
-Per case:
+Per case (inside each resolution group):
 - `speed_x = duration_sec / elapsed_sec`
 - `normalized_speed = min(speed_x / 5.0, 1.0)`
-- `case_score = normalized_case_weight * normalized_speed`
+- `weight_norm = codec_weight / sum(codec_weight in same resolution)`
+- `case_score = weight_norm * normalized_speed`
 
-Total:
-- `total_score_1000 = round(1000 * sum(case_score))`
+Per resolution:
+- `resolution_score_1000 = round(1000 * sum(case_score in that resolution))`
+
+Overall:
+- single resolution: `overall_score_1000 = resolution_score_1000`
+- multiple resolutions: `overall_score_1000 = round(mean(resolution_score_1000))`
+- `total_score_1000` in JSON is kept as a legacy alias of `overall_score_1000`
 
 ## Release build
 
