@@ -3,7 +3,7 @@
 Cross-platform video encode benchmark as a single binary for macOS/Linux.
 
 Default profile:
-- Input: `video_720.mp4` (auto-generated if missing)
+- Resolution: `720` -> `video_720.mp4` (auto-generated if missing)
 - Clip duration per test: `5s`
 - Codecs: `h264`, `h265`, `av1`
 
@@ -52,6 +52,7 @@ make build
 ffmpeg-benchmark [run] [options]
 
 --inputs CSV         Comma-separated input files
+--resolution CSV     Resolution preset(s): 720,1080,4k,all (default: 720)
 --codecs CSV         Comma-separated codecs: h264,h265,av1 (hevc alias supported)
 --duration-sec N     Clip duration in seconds per test (default: 5)
 --outdir DIR         Output directory (default: ./bench_out)
@@ -68,16 +69,26 @@ ffmpeg-benchmark [run] [options]
 --no-markdown        Skip Markdown output
 --version            Print version
 --help               Show help
+
+Notes:
+- `--inputs` has priority over `--resolution`
+- Missing preset files are auto-generated for non-custom input mode
 ```
 
 Example:
 
 ```bash
 ffmpeg-benchmark run \
-  --inputs "video_720.mp4" \
+  --resolution "1080" \
   --codecs "h264,h265,av1" \
   --duration-sec 5 \
   --outdir ./bench_out
+```
+
+All resolutions:
+
+```bash
+ffmpeg-benchmark run --resolution all --duration-sec 3
 ```
 
 ## Scoring model

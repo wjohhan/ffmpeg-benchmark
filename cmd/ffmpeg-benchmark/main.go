@@ -18,12 +18,13 @@ import (
 	"time"
 )
 
-var Version = "0.3.0"
+var Version = "0.3.1"
 
 var errShowHelp = errors.New("show help")
 
 type Config struct {
 	Inputs       []string
+	Resolution   string
 	Codecs       []string
 	DurationSec  float64
 	OutDir       string
@@ -49,6 +50,7 @@ type SystemInfo struct {
 
 type RunConfig struct {
 	Inputs          []string `json:"inputs"`
+	Resolution      string   `json:"resolution"`
 	Codecs          []string `json:"codecs"`
 	ClipDurationSec float64  `json:"clip_duration_sec"`
 	Preset          string   `json:"preset"`
@@ -135,12 +137,18 @@ func run(args []string) error {
 		return errors.New("ffprobe is not installed or not in PATH")
 	}
 
-	if !cfg.CustomInputs && len(cfg.Inputs) == 1 && cfg.Inputs[0] == "video_720.mp4" {
-		if _, statErr := os.Stat(cfg.Inputs[0]); errors.Is(statErr, os.ErrNotExist) {
-			fmt.Fprintf(os.Stderr, "Default input not found: %s\n", cfg.Inputs[0])
-			fmt.Fprintf(os.Stderr, "Generating synthetic 720p sample clip (%ss)...\n", formatDurationValue(cfg.DurationSec))
-			if err := generateDefaultInput(ffmpegPath, cfg.Inputs[0], cfg.DurationSec); err != nil {
-				return fmt.Errorf("could not generate default input: %w", err)
+	if !cfg.CustomInputs {
+		for _, input := range cfg.Inputs {
+			if _, statErr := os.Stat(input); errors.Is(statErr, os.ErrNotExist) {
+				label, width, height, ok := syntheticInputSpec(input)
+				if !ok {
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "Input not found: %s\n", input)
+				fmt.Fprintf(os.Stderr, "Generating synthetic %s sample clip (%ss)...\n", label, formatDurationValue(cfg.DurationSec))
+				if err := generateSyntheticInput(ffmpegPath, input, width, height, cfg.DurationSec); err != nil {
+					return fmt.Errorf("could not generate input %s: %w", input, err)
+				}
 			}
 		}
 	}
@@ -270,6 +278,7 @@ func run(args []string) error {
 		System:        system,
 		RunConfig: RunConfig{
 			Inputs:          cfg.Inputs,
+			Resolution:      cfg.Resolution,
 			Codecs:          cfg.Codecs,
 			ClipDurationSec: cfg.DurationSec,
 			Preset:          cfg.Preset,
@@ -325,6 +334,7 @@ func parseConfig(args []string) (Config, bool, error) {
 	fs.SetOutput(os.Stdout)
 
 	inputsCSV := fs.String("inputs", "video_720.mp4", "Comma-separated input files")
+	resolution := fs.String("resolution", "720", "Resolution preset(s): 720,1080,4k,all (comma-separated)")
 	codecsCSV := fs.String("codecs", "h264,h265,av1", "Comma-separated codecs: h264,h265,av1 (hevc alias supported)")
 	durationSec := fs.Float64("duration-sec", 5, "Clip duration in seconds per test")
 	outDir := fs.String("outdir", "./bench_out", "Output directory")
@@ -357,9 +367,18 @@ func parseConfig(args []string) (Config, bool, error) {
 		return cfg, true, nil
 	}
 
-	inputs := parseCSV(*inputsCSV)
-	if len(inputs) == 0 {
-		return cfg, false, errors.New("no valid inputs provided")
+	var inputs []string
+	var err error
+	if customInputs {
+		inputs = parseCSV(*inputsCSV)
+		if len(inputs) == 0 {
+			return cfg, false, errors.New("no valid inputs provided")
+		}
+	} else {
+		inputs, err = resolveInputsFromResolution(*resolution)
+		if err != nil {
+			return cfg, false, err
+		}
 	}
 
 	codecs, err := parseCodecs(*codecsCSV)
@@ -384,6 +403,7 @@ func parseConfig(args []string) (Config, bool, error) {
 
 	cfg = Config{
 		Inputs:       inputs,
+		Resolution:   normalizeResolutionSpec(*resolution, customInputs),
 		Codecs:       codecs,
 		DurationSec:  *durationSec,
 		OutDir:       *outDir,
@@ -450,6 +470,56 @@ func parseCodecs(v string) ([]string, error) {
 		}
 	}
 	return codecs, nil
+}
+
+func resolveInputsFromResolution(spec string) ([]string, error) {
+	tokens := parseCSV(strings.ToLower(spec))
+	if len(tokens) == 0 {
+		return nil, errors.New("no valid resolution provided")
+	}
+
+	added := map[string]bool{}
+	inputs := make([]string, 0, 3)
+	add := func(path string) {
+		if !added[path] {
+			added[path] = true
+			inputs = append(inputs, path)
+		}
+	}
+
+	for _, token := range tokens {
+		switch token {
+		case "720", "720p":
+			add("video_720.mp4")
+		case "1080", "1080p", "fhd":
+			add("video_1080.mp4")
+		case "4k", "2160", "2160p", "uhd":
+			add("video.mp4")
+		case "all":
+			add("video_720.mp4")
+			add("video_1080.mp4")
+			add("video.mp4")
+		default:
+			return nil, fmt.Errorf("unsupported resolution: %s (allowed: 720, 1080, 4k, all)", token)
+		}
+	}
+
+	if len(inputs) == 0 {
+		return nil, errors.New("no valid resolution provided")
+	}
+
+	return inputs, nil
+}
+
+func normalizeResolutionSpec(spec string, customInputs bool) string {
+	if customInputs {
+		return "custom"
+	}
+	tokens := parseCSV(strings.ToLower(spec))
+	if len(tokens) == 0 {
+		return "720"
+	}
+	return strings.Join(tokens, ",")
 }
 
 func collectSystemInfo(ffmpegPath string) SystemInfo {
@@ -575,10 +645,23 @@ func runEncode(ffmpegPath, input, output, codec, encoder string, cfg Config, dur
 	return stderr.String(), elapsed, args, err
 }
 
-func generateDefaultInput(ffmpegPath, output string, durationSec float64) error {
+func syntheticInputSpec(input string) (label string, width int, height int, ok bool) {
+	switch filepath.Base(input) {
+	case "video_720.mp4":
+		return "720p", 1280, 720, true
+	case "video_1080.mp4":
+		return "1080p", 1920, 1080, true
+	case "video.mp4":
+		return "4K", 3840, 2160, true
+	default:
+		return "", 0, 0, false
+	}
+}
+
+func generateSyntheticInput(ffmpegPath, output string, width, height int, durationSec float64) error {
 	args := []string{
 		"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
+		"-f", "lavfi", "-i", fmt.Sprintf("testsrc2=size=%dx%d:rate=30", width, height),
 		"-t", formatFloat(durationSec, 6),
 		"-pix_fmt", "yuv420p",
 		"-c:v", "mpeg4", "-q:v", "5",
@@ -953,12 +1036,13 @@ func printUsage() {
 	fmt.Println("Usage: ffmpeg-benchmark [run] [options]")
 	fmt.Println()
 	fmt.Println("Default profile:")
-	fmt.Println("  Input: video_720.mp4 (auto-generated if missing)")
+	fmt.Println("  Resolution: 720 (video_720.mp4; auto-generated if missing)")
 	fmt.Println("  Clip duration: 5 seconds per test")
 	fmt.Println("  Codecs: h264,h265,av1")
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  --inputs CSV         Comma-separated input files")
+	fmt.Println("  --resolution CSV     Resolution preset(s): 720,1080,4k,all (default: 720)")
 	fmt.Println("  --codecs CSV         Comma-separated codecs: h264,h265,av1 (hevc alias supported)")
 	fmt.Println("  --duration-sec N     Clip duration in seconds per test (default: 5)")
 	fmt.Println("  --outdir DIR         Output directory (default: ./bench_out)")
@@ -975,4 +1059,8 @@ func printUsage() {
 	fmt.Println("  --no-markdown        Skip Markdown output")
 	fmt.Println("  --version            Print version")
 	fmt.Println("  --help               Show help")
+	fmt.Println()
+	fmt.Println("Notes:")
+	fmt.Println("  - --inputs has priority over --resolution")
+	fmt.Println("  - Missing preset files are auto-generated for non-custom input mode")
 }
