@@ -4,10 +4,6 @@ dist/
 /ffmpeg-benchmark
 benchmark-v*.tar.gz
 
-# Local media samples
-video.mp4
-video_1080.mp4
-
 # OS/editor artifacts
 .DS_Store
 *.swp
