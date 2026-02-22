@@ -2,7 +2,7 @@
 set -u
 export LC_ALL=C
 
-SCRIPT_VERSION="0.2.2"
+SCRIPT_VERSION="0.2.3"
 
 print_usage() {
   cat <<'USAGE'
@@ -597,22 +597,32 @@ for input in "${INPUTS[@]}"; do
   done
 done
 
-TOTAL_RAW_WEIGHT=$(awk -F'\t' 'NR > 1 {sum += $7} END { if (sum > 0) printf "%.12f", sum; else print "1" }' "$RAW_TSV")
-
-awk -F'\t' -v OFS='\t' -v total_raw="$TOTAL_RAW_WEIGHT" '
+awk -F'\t' -v OFS='\t' '
 NR == 1 {
   print $0, "weight_norm", "case_score"
   next
 }
 {
-  weight_norm = (total_raw > 0) ? ($7 / total_raw) : 0
-  normalized_speed = $10 / 5.0
-  if (normalized_speed > 1.0) normalized_speed = 1.0
-  if ($11 != "OK") normalized_speed = 0
-  case_score = weight_norm * normalized_speed
+  rows[++n] = $0
+  raw[n] = $7 + 0
+  total_raw += raw[n]
+}
+END {
+  if (total_raw <= 0) {
+    total_raw = 1
+  }
 
-  printf "%s\t%s\t%s\t%s\t%.6f\t%.6f\t%.12f\t%.6f\t%.6f\t%.6f\t%s\t%s\t%s\t%.12f\t%.12f\n", \
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, weight_norm, case_score
+  for (i = 1; i <= n; i++) {
+    split(rows[i], f, "\t")
+    weight_norm = raw[i] / total_raw
+    normalized_speed = f[10] / 5.0
+    if (normalized_speed > 1.0) normalized_speed = 1.0
+    if (f[11] != "OK") normalized_speed = 0
+    case_score = weight_norm * normalized_speed
+
+    printf "%s\t%s\t%s\t%s\t%.6f\t%.6f\t%.12f\t%.6f\t%.6f\t%.6f\t%s\t%s\t%s\t%.12f\t%.12f\n", \
+      f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[10], f[11], f[12], f[13], weight_norm, case_score
+  }
 }
 ' "$RAW_TSV" > "$SCORED_TSV"
 
