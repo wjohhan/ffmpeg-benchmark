@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/benchmark.sh | 
 Pinned version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/v0.2.0/benchmark.sh | bash
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/v0.2.1/benchmark.sh | bash
 ```
 
 ## CLI Options

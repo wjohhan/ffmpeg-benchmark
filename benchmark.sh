@@ -2,7 +2,7 @@
 set -u
 export LC_ALL=C
 
-SCRIPT_VERSION="0.2.0"
+SCRIPT_VERSION="0.2.1"
 
 print_usage() {
   cat <<'USAGE'
@@ -337,8 +337,20 @@ for codec in "${CODECS[@]}"; do
       ;;
   esac
 
-  if [[ " ${clean_codecs[*]} " != *" ${canonical_codec} "* ]]; then
-    clean_codecs+=("$canonical_codec")
+  if [ "${#clean_codecs[@]}" -eq 0 ]; then
+    clean_codecs=("$canonical_codec")
+  else
+    already_added=0
+    for existing_codec in "${clean_codecs[@]}"; do
+      if [ "$existing_codec" = "$canonical_codec" ]; then
+        already_added=1
+        break
+      fi
+    done
+
+    if [ "$already_added" -eq 0 ]; then
+      clean_codecs+=("$canonical_codec")
+    fi
   fi
 done
 CODECS=("${clean_codecs[@]}")
