@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-var Version = "0.4.0"
+var Version = "0.4.1"
 
 var errShowHelp = errors.New("show help")
 
@@ -958,14 +958,11 @@ func writeMarkdown(path string, results Results) error {
 	fmt.Fprintf(&b, "| ffmpeg | `%s` |\n\n", results.System.FFmpeg)
 
 	b.WriteString("## Resolution Scores\n\n")
-	b.WriteString("| Resolution | OK | Failed | Unsupported | Geomean Speed (x) | Score (100=1x) |\n")
-	b.WriteString("|---|---:|---:|---:|---:|---:|\n")
+	b.WriteString("| Resolution | Geomean Speed (x) | Score (100=1x) |\n")
+	b.WriteString("|---|---:|---:|\n")
 	for _, rs := range results.Summary.ResolutionScores {
-		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %.4f | %.2f |\n",
+		fmt.Fprintf(&b, "| `%s` | %.4f | %.2f |\n",
 			rs.ResolutionLabel,
-			rs.SuccessfulCases,
-			rs.FailedCases,
-			rs.UnsupportedCases,
 			rs.GeomeanSpeedX,
 			rs.BenchmarkScore,
 		)
@@ -983,9 +980,6 @@ func writeMarkdown(path string, results Results) error {
 	}
 
 	b.WriteString("\n## Summary\n\n")
-	fmt.Fprintf(&b, "- Successful cases: `%d`\n", results.Summary.SuccessfulCases)
-	fmt.Fprintf(&b, "- Failed cases: `%d`\n", results.Summary.FailedCases)
-	fmt.Fprintf(&b, "- Unsupported cases: `%d`\n", results.Summary.UnsupportedCases)
 	fmt.Fprintf(&b, "- Benchmark score: `%.2f` (`100 = 1.0x real-time`)\n", results.Summary.BenchmarkScore)
 
 	if results.Summary.FailedCases > 0 || results.Summary.UnsupportedCases > 0 {
@@ -1024,9 +1018,6 @@ func printCaseTable(cases []CaseResult) {
 
 func printSummary(summary Summary) {
 	fmt.Printf("\nSummary:\n")
-	fmt.Printf("  Successful cases:  %d\n", summary.SuccessfulCases)
-	fmt.Printf("  Failed cases:      %d\n", summary.FailedCases)
-	fmt.Printf("  Unsupported cases: %d\n", summary.UnsupportedCases)
 	fmt.Printf("  Geomean speed:     %sx\n", formatFloat(summary.GeomeanSpeedX, 4))
 	fmt.Printf("  Benchmark score:   %s (100 = 1.0x real-time)\n", formatFloat(summary.BenchmarkScore, 2))
 
@@ -1035,14 +1026,11 @@ func printSummary(summary Summary) {
 	}
 
 	fmt.Printf("\nResolution scores:\n")
-	fmt.Printf("%-10s %-4s %-6s %-11s %-9s %-11s\n", "Resolution", "OK", "Fail", "Unsupported", "Geomean", "Score")
-	fmt.Printf("%s\n", "---------------------------------------------------------------------")
+	fmt.Printf("%-10s %-9s %-11s\n", "Resolution", "Geomean", "Score")
+	fmt.Printf("%s\n", "---------------------------------------")
 	for _, rs := range summary.ResolutionScores {
-		fmt.Printf("%-10s %-4d %-6d %-11d %-9s %-11s\n",
+		fmt.Printf("%-10s %-9s %-11s\n",
 			rs.ResolutionLabel,
-			rs.SuccessfulCases,
-			rs.FailedCases,
-			rs.UnsupportedCases,
 			formatSpeed(rs.GeomeanSpeedX),
 			formatFloat(rs.BenchmarkScore, 2),
 		)

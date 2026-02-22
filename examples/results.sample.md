@@ -9,16 +9,13 @@ video_720.mp4    720p    h265   OK          3.14x     1.59s     314.00
 video_720.mp4    720p    av1    OK          3.21x     1.56s     321.00
 
 Summary:
-  Successful cases:  3
-  Failed cases:      0
-  Unsupported cases: 0
   Geomean speed:     4.2830x
   Benchmark score:   428.30 (100 = 1.0x real-time)
 
 Resolution scores:
-Resolution OK   Fail   Unsupported Geomean   Score
----------------------------------------------------------------------
-720p       3    0      0           4.28x     428.30
+Resolution Geomean   Score
+---------------------------------------
+720p       4.28x     428.30
 ```
 
 Summary fields in `results.json`:
