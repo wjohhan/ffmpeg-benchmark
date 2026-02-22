@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-var Version = "0.3.1"
+var Version = "0.3.2"
 
 var errShowHelp = errors.New("show help")
 
@@ -328,29 +328,39 @@ func parseConfig(args []string) (Config, bool, error) {
 		args = args[1:]
 	}
 
-	customInputs := hasFlag(args, "--inputs")
+	customInputs := hasAnyFlag(args, "--inputs", "-i")
 
 	fs := flag.NewFlagSet("ffmpeg-benchmark", flag.ContinueOnError)
 	fs.SetOutput(os.Stdout)
 
 	inputsCSV := fs.String("inputs", "video_720.mp4", "Comma-separated input files")
+	inputsCSVShort := fs.String("i", "", "Alias of --inputs")
 	resolution := fs.String("resolution", "720", "Resolution preset(s): 720,1080,4k,all (comma-separated)")
+	resolutionShort := fs.String("r", "", "Alias of --resolution")
 	codecsCSV := fs.String("codecs", "h264,h265,av1", "Comma-separated codecs: h264,h265,av1 (hevc alias supported)")
+	codecsCSVShort := fs.String("c", "", "Alias of --codecs")
 	durationSec := fs.Float64("duration-sec", 5, "Clip duration in seconds per test")
+	durationSecShort := fs.Float64("d", 0, "Alias of --duration-sec")
 	outDir := fs.String("outdir", "./bench_out", "Output directory")
+	outDirShort := fs.String("o", "", "Alias of --outdir")
 	preset := fs.String("preset", "medium", "Preset for h264/h265")
+	presetShort := fs.String("p", "", "Alias of --preset")
 	crfH264 := fs.Int("crf-h264", 23, "CRF for h264")
 	crfH265 := fs.Int("crf-h265", 28, "CRF for h265")
 	crfHEVC := fs.Int("crf-hevc", 28, "Alias of --crf-h265")
 	crfAV1 := fs.Int("crf-av1", 32, "CRF/quality value for av1")
 	maxJobs := fs.Int("max-jobs", 1, "Reserved for future parallel runs; currently only 1 is supported")
+	maxJobsShort := fs.Int("j", 0, "Alias of --max-jobs")
 	keepOutputs := fs.Bool("keep-outputs", false, "Keep encoded outputs")
+	keepOutputsShort := fs.Bool("k", false, "Alias of --keep-outputs")
 	writeJSON := fs.Bool("json", true, "Write results.json")
 	writeMD := fs.Bool("markdown", true, "Write results.md")
 	noJSON := fs.Bool("no-json", false, "Skip JSON output")
 	noMD := fs.Bool("no-markdown", false, "Skip Markdown output")
 	showVersion := fs.Bool("version", false, "Print version")
+	showVersionShort := fs.Bool("v", false, "Alias of --version")
 	showHelp := fs.Bool("help", false, "Show help")
+	showHelpShort := fs.Bool("h", false, "Alias of --help")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -359,38 +369,68 @@ func parseConfig(args []string) (Config, bool, error) {
 		return cfg, false, err
 	}
 
-	if *showHelp {
+	if *showHelp || *showHelpShort {
 		return cfg, false, errShowHelp
 	}
 
-	if *showVersion {
+	if *showVersion || *showVersionShort {
 		return cfg, true, nil
 	}
+
+	inputsSpec := *inputsCSV
+	if hasFlag(args, "-i") {
+		inputsSpec = *inputsCSVShort
+	}
+	resolutionSpec := *resolution
+	if hasFlag(args, "-r") {
+		resolutionSpec = *resolutionShort
+	}
+	codecsSpec := *codecsCSV
+	if hasFlag(args, "-c") {
+		codecsSpec = *codecsCSVShort
+	}
+	durationVal := *durationSec
+	if hasFlag(args, "-d") {
+		durationVal = *durationSecShort
+	}
+	outDirVal := *outDir
+	if hasFlag(args, "-o") {
+		outDirVal = *outDirShort
+	}
+	presetVal := *preset
+	if hasFlag(args, "-p") {
+		presetVal = *presetShort
+	}
+	maxJobsVal := *maxJobs
+	if hasFlag(args, "-j") {
+		maxJobsVal = *maxJobsShort
+	}
+	keepOutputsVal := *keepOutputs || *keepOutputsShort
 
 	var inputs []string
 	var err error
 	if customInputs {
-		inputs = parseCSV(*inputsCSV)
+		inputs = parseCSV(inputsSpec)
 		if len(inputs) == 0 {
 			return cfg, false, errors.New("no valid inputs provided")
 		}
 	} else {
-		inputs, err = resolveInputsFromResolution(*resolution)
+		inputs, err = resolveInputsFromResolution(resolutionSpec)
 		if err != nil {
 			return cfg, false, err
 		}
 	}
 
-	codecs, err := parseCodecs(*codecsCSV)
+	codecs, err := parseCodecs(codecsSpec)
 	if err != nil {
 		return cfg, false, err
 	}
 
-	if *durationSec <= 0 {
+	if durationVal <= 0 {
 		return cfg, false, errors.New("--duration-sec must be a positive number")
 	}
 
-	if *maxJobs < 1 {
+	if maxJobsVal < 1 {
 		return cfg, false, errors.New("--max-jobs must be >= 1")
 	}
 
@@ -403,16 +443,16 @@ func parseConfig(args []string) (Config, bool, error) {
 
 	cfg = Config{
 		Inputs:       inputs,
-		Resolution:   normalizeResolutionSpec(*resolution, customInputs),
+		Resolution:   normalizeResolutionSpec(resolutionSpec, customInputs),
 		Codecs:       codecs,
-		DurationSec:  *durationSec,
-		OutDir:       *outDir,
-		Preset:       *preset,
+		DurationSec:  durationVal,
+		OutDir:       outDirVal,
+		Preset:       presetVal,
 		CRFH264:      *crfH264,
 		CRFH265:      *crfH265,
 		CRFAV1:       *crfAV1,
-		MaxJobs:      *maxJobs,
-		KeepOutputs:  *keepOutputs,
+		MaxJobs:      maxJobsVal,
+		KeepOutputs:  keepOutputsVal,
 		WriteJSON:    *writeJSON,
 		WriteMD:      *writeMD,
 		CustomInputs: customInputs,
@@ -423,6 +463,15 @@ func parseConfig(args []string) (Config, bool, error) {
 	}
 
 	return cfg, false, nil
+}
+
+func hasAnyFlag(args []string, names ...string) bool {
+	for _, name := range names {
+		if hasFlag(args, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasFlag(args []string, name string) bool {
@@ -1041,24 +1090,24 @@ func printUsage() {
 	fmt.Println("  Codecs: h264,h265,av1")
 	fmt.Println()
 	fmt.Println("Options:")
-	fmt.Println("  --inputs CSV         Comma-separated input files")
-	fmt.Println("  --resolution CSV     Resolution preset(s): 720,1080,4k,all (default: 720)")
-	fmt.Println("  --codecs CSV         Comma-separated codecs: h264,h265,av1 (hevc alias supported)")
-	fmt.Println("  --duration-sec N     Clip duration in seconds per test (default: 5)")
-	fmt.Println("  --outdir DIR         Output directory (default: ./bench_out)")
-	fmt.Println("  --preset NAME        Preset for h264/h265 (default: medium)")
+	fmt.Println("  --inputs, -i CSV     Comma-separated input files")
+	fmt.Println("  --resolution, -r CSV Resolution preset(s): 720,1080,4k,all (default: 720)")
+	fmt.Println("  --codecs, -c CSV     Comma-separated codecs: h264,h265,av1 (hevc alias supported)")
+	fmt.Println("  --duration-sec, -d N Clip duration in seconds per test (default: 5)")
+	fmt.Println("  --outdir, -o DIR     Output directory (default: ./bench_out)")
+	fmt.Println("  --preset, -p NAME    Preset for h264/h265 (default: medium)")
 	fmt.Println("  --crf-h264 N         CRF for h264 (default: 23)")
 	fmt.Println("  --crf-h265 N         CRF for h265 (default: 28)")
 	fmt.Println("  --crf-hevc N         Alias of --crf-h265")
 	fmt.Println("  --crf-av1 N          CRF/quality value for av1 (default: 32)")
-	fmt.Println("  --max-jobs N         Reserved for future parallel runs; currently only 1 is supported")
-	fmt.Println("  --keep-outputs       Keep encoded output videos")
+	fmt.Println("  --max-jobs, -j N     Reserved for future parallel runs; currently only 1 is supported")
+	fmt.Println("  --keep-outputs, -k   Keep encoded output videos")
 	fmt.Println("  --json               Write results.json (enabled by default)")
 	fmt.Println("  --markdown           Write results.md (enabled by default)")
 	fmt.Println("  --no-json            Skip JSON output")
 	fmt.Println("  --no-markdown        Skip Markdown output")
-	fmt.Println("  --version            Print version")
-	fmt.Println("  --help               Show help")
+	fmt.Println("  --version, -v        Print version")
+	fmt.Println("  --help, -h           Show help")
 	fmt.Println()
 	fmt.Println("Notes:")
 	fmt.Println("  - --inputs has priority over --resolution")

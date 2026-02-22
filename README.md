@@ -51,24 +51,24 @@ make build
 ```text
 ffmpeg-benchmark [run] [options]
 
---inputs CSV         Comma-separated input files
---resolution CSV     Resolution preset(s): 720,1080,4k,all (default: 720)
---codecs CSV         Comma-separated codecs: h264,h265,av1 (hevc alias supported)
---duration-sec N     Clip duration in seconds per test (default: 5)
---outdir DIR         Output directory (default: ./bench_out)
---preset NAME        Preset for h264/h265 (default: medium)
+--inputs, -i CSV     Comma-separated input files
+--resolution, -r CSV Resolution preset(s): 720,1080,4k,all (default: 720)
+--codecs, -c CSV     Comma-separated codecs: h264,h265,av1 (hevc alias supported)
+--duration-sec, -d N Clip duration in seconds per test (default: 5)
+--outdir, -o DIR     Output directory (default: ./bench_out)
+--preset, -p NAME    Preset for h264/h265 (default: medium)
 --crf-h264 N         CRF for h264 (default: 23)
 --crf-h265 N         CRF for h265 (default: 28)
 --crf-hevc N         Alias of --crf-h265
 --crf-av1 N          CRF/quality value for av1 (default: 32)
---max-jobs N         Reserved for future parallel runs; currently only 1 is supported
---keep-outputs       Keep encoded output videos
+--max-jobs, -j N     Reserved for future parallel runs; currently only 1 is supported
+--keep-outputs, -k   Keep encoded output videos
 --json               Write results.json (enabled by default)
 --markdown           Write results.md (enabled by default)
 --no-json            Skip JSON output
 --no-markdown        Skip Markdown output
---version            Print version
---help               Show help
+--version, -v        Print version
+--help, -h           Show help
 
 Notes:
 - `--inputs` has priority over `--resolution`
@@ -79,16 +79,16 @@ Example:
 
 ```bash
 ffmpeg-benchmark run \
-  --resolution "1080" \
-  --codecs "h264,h265,av1" \
-  --duration-sec 5 \
-  --outdir ./bench_out
+  -r "1080" \
+  -c "h264,h265,av1" \
+  -d 5 \
+  -o ./bench_out
 ```
 
 All resolutions:
 
 ```bash
-ffmpeg-benchmark run --resolution all --duration-sec 3
+ffmpeg-benchmark run -r all -d 3
 ```
 
 ## Scoring model
