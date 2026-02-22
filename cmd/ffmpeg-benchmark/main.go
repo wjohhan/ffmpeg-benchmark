@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-var Version = "0.3.5"
+var Version = "0.4.0"
 
 var errShowHelp = errors.New("show help")
 
@@ -61,32 +61,26 @@ type RunConfig struct {
 }
 
 type CaseResult struct {
-	Input            string  `json:"input"`
-	Codec            string  `json:"codec"`
-	Encoder          string  `json:"encoder"`
-	ResolutionLabel  string  `json:"resolution_label"`
-	DurationSec      float64 `json:"duration_sec"`
-	ElapsedSec       float64 `json:"elapsed_sec"`
-	SpeedX           float64 `json:"speed_x"`
-	Status           string  `json:"status"`
-	WeightNorm       float64 `json:"weight_norm"`
-	CaseScore        float64 `json:"case_score"`
-	OutputFile       string  `json:"output_file"`
-	StderrTail       string  `json:"stderr_tail"`
-	ResolutionWeight float64 `json:"-"`
-	CodecWeight      float64 `json:"-"`
-	RawWeight        float64 `json:"-"`
+	Input           string  `json:"input"`
+	Codec           string  `json:"codec"`
+	Encoder         string  `json:"encoder"`
+	ResolutionLabel string  `json:"resolution_label"`
+	DurationSec     float64 `json:"duration_sec"`
+	ElapsedSec      float64 `json:"elapsed_sec"`
+	SpeedX          float64 `json:"speed_x"`
+	RealtimePct     float64 `json:"realtime_pct"`
+	Status          string  `json:"status"`
+	OutputFile      string  `json:"output_file"`
+	StderrTail      string  `json:"stderr_tail"`
 }
 
 type Summary struct {
-	SuccessfulCases   int                 `json:"successful_cases"`
-	FailedCases       int                 `json:"failed_cases"`
-	UnsupportedCases  int                 `json:"unsupported_cases"`
-	GeomeanSpeedX     float64             `json:"geomean_speed_x"`
-	OverallScore1000  int                 `json:"overall_score_1000"`
-	TotalScore1000    int                 `json:"total_score_1000"`
-	ResolutionScores  []ResolutionSummary `json:"resolution_scores"`
-	OverallScoreBasis string              `json:"overall_score_basis"`
+	SuccessfulCases  int                 `json:"successful_cases"`
+	FailedCases      int                 `json:"failed_cases"`
+	UnsupportedCases int                 `json:"unsupported_cases"`
+	GeomeanSpeedX    float64             `json:"geomean_speed_x"`
+	BenchmarkScore   float64             `json:"benchmark_score"`
+	ResolutionScores []ResolutionSummary `json:"resolution_scores"`
 }
 
 type ResolutionSummary struct {
@@ -95,7 +89,7 @@ type ResolutionSummary struct {
 	FailedCases      int     `json:"failed_cases"`
 	UnsupportedCases int     `json:"unsupported_cases"`
 	GeomeanSpeedX    float64 `json:"geomean_speed_x"`
-	Score1000        int     `json:"score_1000"`
+	BenchmarkScore   float64 `json:"benchmark_score"`
 }
 
 type resolutionAggregate struct {
@@ -104,7 +98,6 @@ type resolutionAggregate struct {
 	unsupported int
 	sumLog      float64
 	nOKSpeed    int
-	sumScore    float64
 }
 
 type Results struct {
@@ -206,7 +199,7 @@ func run(args []string) error {
 	fmt.Printf("Output dir: %s\n\n", cfg.OutDir)
 
 	for _, input := range cfg.Inputs {
-		resLabel, resWeight := resolutionInfo(ffprobePath, input)
+		resLabel := resolutionInfo(ffprobePath, input)
 		sourceDuration := probeDuration(ffprobePath, input)
 		testDuration := cfg.DurationSec
 		loopInput := sourceDuration > 0 && sourceDuration < testDuration
@@ -215,15 +208,12 @@ func run(args []string) error {
 			caseIndex++
 
 			c := CaseResult{
-				Input:            input,
-				Codec:            codec,
-				Status:           "FAILED",
-				ResolutionLabel:  resLabel,
-				ResolutionWeight: resWeight,
-				CodecWeight:      codecWeight(codec),
-				DurationSec:      testDuration,
+				Input:           input,
+				Codec:           codec,
+				Status:          "FAILED",
+				ResolutionLabel: resLabel,
+				DurationSec:     testDuration,
 			}
-			c.RawWeight = c.ResolutionWeight * c.CodecWeight
 
 			baseInput := filepath.Base(input)
 			fmt.Printf("[%d/%d] %s -> %s ... ", caseIndex, totalCases, baseInput, codec)
@@ -267,6 +257,7 @@ func run(args []string) error {
 			} else {
 				c.Status = "OK"
 				c.SpeedX = testDuration / c.ElapsedSec
+				c.RealtimePct = c.SpeedX * 100.0
 				c.StderrTail = compactImportantLog(stderrText)
 			}
 
@@ -280,7 +271,6 @@ func run(args []string) error {
 		}
 	}
 
-	scoreCases(cases)
 	summary := summarize(cases)
 
 	scoredTSV := filepath.Join(cfg.OutDir, "cases_scored.tsv")
@@ -742,34 +732,34 @@ func generateSyntheticInput(ffmpegPath, output string, width, height int, durati
 	return cmd.Run()
 }
 
-func resolutionInfo(ffprobePath, input string) (string, float64) {
+func resolutionInfo(ffprobePath, input string) string {
 	switch filepath.Base(input) {
 	case "video.mp4":
-		return "4K", 0.50
+		return "4K"
 	case "video_1080.mp4":
-		return "1080p", 0.30
+		return "1080p"
 	case "video_720.mp4":
-		return "720p", 0.20
+		return "720p"
 	}
 
 	w, h := probeDimensions(ffprobePath, input)
 	if w == 0 || h == 0 {
-		return "unknown", 0.20
+		return "unknown"
 	}
 	return classifyResolutionByHeight(h)
 }
 
-func classifyResolutionByHeight(height int) (string, float64) {
+func classifyResolutionByHeight(height int) string {
 	if height >= 2000 {
-		return "4K", 0.50
+		return "4K"
 	}
 	if height >= 1000 {
-		return "1080p", 0.30
+		return "1080p"
 	}
 	if height >= 700 {
-		return "720p", 0.20
+		return "720p"
 	}
-	return "unknown", 0.20
+	return "unknown"
 }
 
 func probeDimensions(ffprobePath, input string) (int, int) {
@@ -814,50 +804,6 @@ func probeDuration(ffprobePath, input string) float64 {
 	return d
 }
 
-func codecWeight(codec string) float64 {
-	switch codec {
-	case "h264":
-		return 0.20
-	case "h265":
-		return 0.35
-	case "av1":
-		return 0.45
-	default:
-		return 0
-	}
-}
-
-func scoreCases(cases []CaseResult) {
-	byResolution := map[string][]int{}
-	for i := range cases {
-		label := cases[i].ResolutionLabel
-		byResolution[label] = append(byResolution[label], i)
-	}
-
-	for _, indices := range byResolution {
-		totalRaw := 0.0
-		for _, idx := range indices {
-			totalRaw += cases[idx].RawWeight
-		}
-		if totalRaw <= 0 {
-			totalRaw = 1
-		}
-
-		for _, idx := range indices {
-			weightNorm := cases[idx].RawWeight / totalRaw
-			normalizedSpeed := cases[idx].SpeedX / 5.0
-			if normalizedSpeed > 1.0 {
-				normalizedSpeed = 1.0
-			}
-			if cases[idx].Status != "OK" {
-				normalizedSpeed = 0
-			}
-			cases[idx].WeightNorm = weightNorm
-			cases[idx].CaseScore = weightNorm * normalizedSpeed
-		}
-	}
-}
-
 func summarize(cases []CaseResult) Summary {
 	summary := Summary{}
 	sumLog := 0.0
@@ -897,16 +843,15 @@ func summarize(cases []CaseResult) Summary {
 		case "UNSUPPORTED":
 			agg.unsupported++
 		}
-		agg.sumScore += c.CaseScore
 	}
 
 	if nOKSpeed > 0 {
 		summary.GeomeanSpeedX = math.Exp(sumLog / float64(nOKSpeed))
 	}
+	summary.BenchmarkScore = speedToBenchmarkScore(summary.GeomeanSpeedX)
 
 	labels := sortedResolutionLabels(aggregates)
 	resolutionSummaries := make([]ResolutionSummary, 0, len(labels))
-	sumResolutionScores := 0.0
 	for _, label := range labels {
 		agg := aggregates[label]
 		rs := ResolutionSummary{
@@ -914,28 +859,24 @@ func summarize(cases []CaseResult) Summary {
 			SuccessfulCases:  agg.successful,
 			FailedCases:      agg.failed,
 			UnsupportedCases: agg.unsupported,
-			Score1000:        int(math.Round(agg.sumScore * 1000)),
 		}
 		if agg.nOKSpeed > 0 {
 			rs.GeomeanSpeedX = math.Exp(agg.sumLog / float64(agg.nOKSpeed))
 		}
+		rs.BenchmarkScore = speedToBenchmarkScore(rs.GeomeanSpeedX)
 		resolutionSummaries = append(resolutionSummaries, rs)
-		sumResolutionScores += agg.sumScore
 	}
 	summary.ResolutionScores = resolutionSummaries
 
-	if len(resolutionSummaries) > 0 {
-		overall := int(math.Round((sumResolutionScores / float64(len(resolutionSummaries))) * 1000))
-		summary.OverallScore1000 = overall
-		summary.TotalScore1000 = overall
-		if len(resolutionSummaries) > 1 {
-			summary.OverallScoreBasis = "mean_of_resolution_scores"
-		} else {
-			summary.OverallScoreBasis = "single_resolution_score"
-		}
-	}
-
 	return summary
+}
+
+func speedToBenchmarkScore(speedX float64) float64 {
+	if speedX <= 0 {
+		return 0
+	}
+	// 100 means real-time (1.0x); >100 is faster than real-time.
+	return speedX * 100.0
 }
 
 func sortedResolutionLabels(aggregates map[string]*resolutionAggregate) []string {
@@ -971,24 +912,20 @@ func resolutionLabelRank(label string) int {
 
 func writeScoredTSV(path string, cases []CaseResult) error {
 	var b strings.Builder
-	b.WriteString("input\tcodec\tencoder\tres_label\tres_weight\tcodec_weight\traw_weight\tduration_sec\telapsed_sec\tspeed_x\tstatus\toutput_file\tstderr_tail\tweight_norm\tcase_score\n")
+	b.WriteString("input\tcodec\tencoder\tres_label\tduration_sec\telapsed_sec\tspeed_x\trealtime_pct\tstatus\toutput_file\tstderr_tail\n")
 	for _, c := range cases {
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%.6f\t%.6f\t%.12f\t%.6f\t%.6f\t%.6f\t%s\t%s\t%s\t%.12f\t%.12f\n",
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%.6f\t%.6f\t%.6f\t%.2f\t%s\t%s\t%s\n",
 			c.Input,
 			c.Codec,
 			c.Encoder,
 			c.ResolutionLabel,
-			c.ResolutionWeight,
-			c.CodecWeight,
-			c.RawWeight,
 			c.DurationSec,
 			c.ElapsedSec,
 			c.SpeedX,
+			c.RealtimePct,
 			c.Status,
 			c.OutputFile,
 			c.StderrTail,
-			c.WeightNorm,
-			c.CaseScore,
 		)
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
@@ -1010,11 +947,7 @@ func writeMarkdown(path string, results Results) error {
 	fmt.Fprintf(&b, "- Script version: `%s`\n", results.ScriptVersion)
 	fmt.Fprintf(&b, "- Clip duration per test: `%ss`\n", formatDurationValue(results.RunConfig.ClipDurationSec))
 	fmt.Fprintf(&b, "- Geomean speed (OK cases): **%sx**\n", formatFloat(results.Summary.GeomeanSpeedX, 4))
-	if len(results.Summary.ResolutionScores) > 1 {
-		fmt.Fprintf(&b, "- Overall score: **%d / 1000** (mean of resolution scores)\n\n", results.Summary.OverallScore1000)
-	} else {
-		fmt.Fprintf(&b, "- Score: **%d / 1000**\n\n", results.Summary.OverallScore1000)
-	}
+	fmt.Fprintf(&b, "- Benchmark score: **%s** (`100 = 1.0x real-time`)\n\n", formatFloat(results.Summary.BenchmarkScore, 2))
 
 	b.WriteString("## System\n\n")
 	b.WriteString("| Key | Value |\n")
@@ -1025,27 +958,27 @@ func writeMarkdown(path string, results Results) error {
 	fmt.Fprintf(&b, "| ffmpeg | `%s` |\n\n", results.System.FFmpeg)
 
 	b.WriteString("## Resolution Scores\n\n")
-	b.WriteString("| Resolution | OK | Failed | Unsupported | Geomean Speed (x) | Score (/1000) |\n")
+	b.WriteString("| Resolution | OK | Failed | Unsupported | Geomean Speed (x) | Score (100=1x) |\n")
 	b.WriteString("|---|---:|---:|---:|---:|---:|\n")
 	for _, rs := range results.Summary.ResolutionScores {
-		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %.4f | %d |\n",
+		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %.4f | %.2f |\n",
 			rs.ResolutionLabel,
 			rs.SuccessfulCases,
 			rs.FailedCases,
 			rs.UnsupportedCases,
 			rs.GeomeanSpeedX,
-			rs.Score1000,
+			rs.BenchmarkScore,
 		)
 	}
 
 	b.WriteString("\n## Cases\n\n")
-	b.WriteString("| Input | Res | Codec | Status | Speed (x) | Elapsed (s) | Case Score |\n")
+	b.WriteString("| Input | Res | Codec | Status | Speed (x) | Elapsed (s) | Real-time % |\n")
 	b.WriteString("|---|---|---|---|---:|---:|---:|\n")
 	for _, c := range results.Cases {
 		fmt.Fprintf(&b,
-			"| `%s` | `%s` | `%s` | `%s` | %.3f | %.3f | %.4f |\n",
+			"| `%s` | `%s` | `%s` | `%s` | %.3f | %.3f | %.2f |\n",
 			filepath.Base(c.Input), c.ResolutionLabel, c.Codec, c.Status,
-			c.SpeedX, c.ElapsedSec, c.CaseScore,
+			c.SpeedX, c.ElapsedSec, c.RealtimePct,
 		)
 	}
 
@@ -1053,11 +986,7 @@ func writeMarkdown(path string, results Results) error {
 	fmt.Fprintf(&b, "- Successful cases: `%d`\n", results.Summary.SuccessfulCases)
 	fmt.Fprintf(&b, "- Failed cases: `%d`\n", results.Summary.FailedCases)
 	fmt.Fprintf(&b, "- Unsupported cases: `%d`\n", results.Summary.UnsupportedCases)
-	if len(results.Summary.ResolutionScores) > 1 {
-		fmt.Fprintf(&b, "- Overall score: `%d / 1000` (mean of resolution scores)\n", results.Summary.OverallScore1000)
-	} else {
-		fmt.Fprintf(&b, "- Score: `%d / 1000`\n", results.Summary.OverallScore1000)
-	}
+	fmt.Fprintf(&b, "- Benchmark score: `%.2f` (`100 = 1.0x real-time`)\n", results.Summary.BenchmarkScore)
 
 	if results.Summary.FailedCases > 0 || results.Summary.UnsupportedCases > 0 {
 		b.WriteString("\n## Non-OK Cases\n\n")
@@ -1078,17 +1007,17 @@ func writeMarkdown(path string, results Results) error {
 
 func printCaseTable(cases []CaseResult) {
 	fmt.Printf("\nCase results:\n")
-	fmt.Printf("%-16s %-7s %-6s %-11s %-9s %-9s %-8s\n", "Input", "Res", "Codec", "Status", "Speed", "Elapsed", "Score")
-	fmt.Printf("%s\n", "--------------------------------------------------------------------------------")
+	fmt.Printf("%-16s %-7s %-6s %-11s %-9s %-9s %-10s\n", "Input", "Res", "Codec", "Status", "Speed", "Elapsed", "RT%")
+	fmt.Printf("%s\n", "----------------------------------------------------------------------------------")
 	for _, c := range cases {
-		fmt.Printf("%-16s %-7s %-6s %-11s %-9s %-9s %-8s\n",
+		fmt.Printf("%-16s %-7s %-6s %-11s %-9s %-9s %-10s\n",
 			filepath.Base(c.Input),
 			c.ResolutionLabel,
 			c.Codec,
 			c.Status,
 			formatSpeed(c.SpeedX),
 			formatSeconds(c.ElapsedSec),
-			formatFloat(c.CaseScore, 3),
+			formatFloat(c.RealtimePct, 2),
 		)
 	}
 }
@@ -1099,11 +1028,7 @@ func printSummary(summary Summary) {
 	fmt.Printf("  Failed cases:      %d\n", summary.FailedCases)
 	fmt.Printf("  Unsupported cases: %d\n", summary.UnsupportedCases)
 	fmt.Printf("  Geomean speed:     %sx\n", formatFloat(summary.GeomeanSpeedX, 4))
-	if len(summary.ResolutionScores) > 1 {
-		fmt.Printf("  Overall score:     %d / 1000 (mean of resolution scores)\n", summary.OverallScore1000)
-	} else {
-		fmt.Printf("  Score:             %d / 1000\n", summary.OverallScore1000)
-	}
+	fmt.Printf("  Benchmark score:   %s (100 = 1.0x real-time)\n", formatFloat(summary.BenchmarkScore, 2))
 
 	if len(summary.ResolutionScores) == 0 {
 		return
@@ -1119,7 +1044,7 @@ func printSummary(summary Summary) {
 			rs.FailedCases,
 			rs.UnsupportedCases,
 			formatSpeed(rs.GeomeanSpeedX),
-			fmt.Sprintf("%d/1000", rs.Score1000),
+			formatFloat(rs.BenchmarkScore, 2),
 		)
 	}
 }
@@ -1226,13 +1151,6 @@ func formatSeconds(v float64) string {
 
 func formatSpeed(v float64) string {
 	return formatFloat(v, 2) + "x"
-}
-
-func fallback(v, def string) string {
-	if strings.TrimSpace(v) == "" {
-		return def
-	}
-	return v
 }
 
 func printUsage() {

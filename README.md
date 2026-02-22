@@ -94,24 +94,22 @@ ffmpeg-benchmark run -r all -d 3
 
 ## Scoring model
 
-Codec weights:
-- AV1: `0.45`
-- H265: `0.35`
-- H264: `0.20`
-
-Per case (inside each resolution group):
+Per case:
 - `speed_x = duration_sec / elapsed_sec`
-- `normalized_speed = min(speed_x / 5.0, 1.0)`
-- `weight_norm = codec_weight / sum(codec_weight in same resolution)`
-- `case_score = weight_norm * normalized_speed`
+- `realtime_pct = speed_x * 100`
 
 Per resolution:
-- `resolution_score_1000 = round(1000 * sum(case_score in that resolution))`
+- `geomean_speed_x = geometric mean of speed_x for OK cases in that resolution`
+- `benchmark_score = geomean_speed_x * 100`
 
-Overall:
-- single resolution: `overall_score_1000 = resolution_score_1000`
-- multiple resolutions: `overall_score_1000 = round(mean(resolution_score_1000))`
-- `total_score_1000` in JSON is kept as a legacy alias of `overall_score_1000`
+Overall benchmark:
+- `geomean_speed_x = geometric mean of speed_x for all OK cases`
+- `benchmark_score = geomean_speed_x * 100`
+
+Interpretation:
+- `benchmark_score = 100` means exactly real-time encoding speed (`1.0x`)
+- `benchmark_score > 100` means faster than real-time
+- `benchmark_score < 100` means slower than real-time
 
 ## Release build
 
